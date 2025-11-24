@@ -88,7 +88,7 @@ class FrankaPivotingEnvCfg(DirectRLEnvCfg):
                 "panda_finger_joint.*": 0.035,
             },
             pos=(1.0, 0.0, 0.0),
-            rot=(0.0, 0.0, 0.0, 1.0),
+            rot=(0.707, 0.0, 0.0, 0.707),
         ),
         actuators={
             "panda_shoulder": ImplicitActuatorCfg(
