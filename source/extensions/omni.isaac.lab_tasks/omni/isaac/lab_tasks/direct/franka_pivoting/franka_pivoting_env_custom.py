@@ -87,8 +87,8 @@ class FrankaPivotingEnvCfg(DirectRLEnvCfg):
                 "panda_joint7": 0.469,
                 "panda_finger_joint.*": 0.035,
             },
-            pos=(0.0, 0.0, 0.9),
-            rot=(0.0, 0.0, 0.0, 1.0),
+            pos=(0.0, -0.2, 0.8),
+            rot=(0.707, 0.0, 0.0, 0.707),
         ),
         actuators={
             "panda_shoulder": ImplicitActuatorCfg(
@@ -152,10 +152,9 @@ class FrankaPivotingEnvCfg(DirectRLEnvCfg):
 
     # cube object
     cube: RigidObjectCfg = RigidObjectCfg(
-        prim_path="/World/envs/env_.*/Cube",
-        spawn=sim_utils.CuboidCfg(
-            size=(0.05, 0.05, 0.05),  # 5 cm cube
-            collision_props=sim_utils.CollisionPropertiesCfg(),  # use default collision properties
+        prim_path="/World/envs/env_.*/ToyCube",   # ✅ global path with regex
+        spawn=sim_utils.UsdFileCfg(
+            usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Blocks/DexCube/dex_cube_instanceable.usd",
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 kinematic_enabled=False,
                 disable_gravity=False,
@@ -163,10 +162,13 @@ class FrankaPivotingEnvCfg(DirectRLEnvCfg):
             mass_props=sim_utils.MassPropertiesCfg(density=500.0),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(0.6, 1.0, 5.2),        # position in env frame
-            rot=(1.0, 0.0, 0.0, 0.0),   # quaternion (w,x,y,z)
+            pos=(0., 0.15, 0.9),
+            rot=(1.0, 0.0, 0.0, 0.0),
         ),
     )
+
+
+
 
     # ground plane / terrain definition
     terrain = TerrainImporterCfg(
@@ -307,11 +309,6 @@ class FrankaPivotingEnv(DirectRLEnv):
         self.scene.articulations["robot"] = self._robot
         self.scene.articulations["cabinet"] = self._cabinet
         self.scene.rigid_objects["cube"] = self._cube
-
-        table_cfg = self.cfg.seattle_table.spawn
-        for env_id in range(self.scene.num_envs):
-            prim_path = f"/World/envs/env_{env_id}/SeattleLabTable"
-            table_cfg.func(prim_path, table_cfg)
 
         # Multi-env cloning:
         self.cfg.terrain.num_envs = self.scene.cfg.num_envs
