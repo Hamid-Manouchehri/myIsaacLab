@@ -16,7 +16,7 @@ from pxr import UsdGeom
 
 import omni.isaac.lab.sim as sim_utils
 from omni.isaac.lab.actuators.actuator_cfg import ImplicitActuatorCfg
-from omni.isaac.lab.assets import Articulation, ArticulationCfg
+from omni.isaac.lab.assets import Articulation, ArticulationCfg, RigidObjectCfg, AssetBaseCfg
 from omni.isaac.lab.envs import DirectRLEnv, DirectRLEnvCfg
 from omni.isaac.lab.scene import InteractiveSceneCfg
 from omni.isaac.lab.sim import SimulationCfg
@@ -87,8 +87,8 @@ class FrankaPivotingEnvCfg(DirectRLEnvCfg):
                 "panda_joint7": 0.469,
                 "panda_finger_joint.*": 0.035,
             },
-            pos=(1.0, 0.0, 0.0),
-            rot=(0.707, 0.0, 0.0, 0.707),
+            pos=(0.0, 0.0, 0.9),
+            rot=(0.0, 0.0, 0.0, 1.0),
         ),
         actuators={
             "panda_shoulder": ImplicitActuatorCfg(
@@ -148,6 +148,24 @@ class FrankaPivotingEnvCfg(DirectRLEnvCfg):
                 damping=2.5,
             ),
         },
+    )
+
+    # cube object
+    cube: RigidObjectCfg = RigidObjectCfg(
+        prim_path="/World/envs/env_.*/Cube",
+        spawn=sim_utils.CuboidCfg(
+            size=(0.05, 0.05, 0.05),  # 5 cm cube
+            collision_props=sim_utils.CollisionPropertiesCfg(),  # use default collision properties
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                kinematic_enabled=False,
+                disable_gravity=False,
+            ),
+            mass_props=sim_utils.MassPropertiesCfg(density=500.0),
+        ),
+        init_state=RigidObjectCfg.InitialStateCfg(
+            pos=(0.6, 1.0, 5.2),        # position in env frame
+            rot=(1.0, 0.0, 0.0, 0.0),   # quaternion (w,x,y,z)
+        ),
     )
 
     # ground plane / terrain definition
@@ -284,8 +302,16 @@ class FrankaPivotingEnv(DirectRLEnv):
         # Instantiating the robot and cabinet as Articulation objects from their configs. 
         self._robot = Articulation(self.cfg.robot)
         self._cabinet = Articulation(self.cfg.cabinet)
+        self._cube = self.cfg.cube.class_type(self.cfg.cube)
+
         self.scene.articulations["robot"] = self._robot
         self.scene.articulations["cabinet"] = self._cabinet
+        self.scene.rigid_objects["cube"] = self._cube
+
+        table_cfg = self.cfg.seattle_table.spawn
+        for env_id in range(self.scene.num_envs):
+            prim_path = f"/World/envs/env_{env_id}/SeattleLabTable"
+            table_cfg.func(prim_path, table_cfg)
 
         # Multi-env cloning:
         self.cfg.terrain.num_envs = self.scene.cfg.num_envs
