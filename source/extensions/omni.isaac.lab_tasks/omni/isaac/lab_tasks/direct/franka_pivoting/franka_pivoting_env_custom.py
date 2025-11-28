@@ -16,7 +16,7 @@ from pxr import UsdGeom
 
 import omni.isaac.lab.sim as sim_utils
 from omni.isaac.lab.actuators.actuator_cfg import ImplicitActuatorCfg
-from omni.isaac.lab.assets import Articulation, ArticulationCfg, RigidObjectCfg, AssetBaseCfg
+from omni.isaac.lab.assets import Articulation, ArticulationCfg, RigidObjectCfg
 from omni.isaac.lab.envs import DirectRLEnv, DirectRLEnvCfg
 from omni.isaac.lab.scene import InteractiveSceneCfg
 from omni.isaac.lab.sim import SimulationCfg
@@ -38,7 +38,10 @@ Cnfiguration of the env (sim, scene, robot, cabinet, rewards)
 """
 @configclass
 class FrankaPivotingEnvCfg(DirectRLEnvCfg):
-    # env
+    """
+    env: Describe what the world looks like and how the RL problem is defined.
+    - Holding parameters for simulation, scene layout, robot, cabinet, terrain, rewards, etc.
+    """
     episode_length_s = 8.3333  # 500 timesteps, how long an episode is in sim steps
     decimation = 2  # one policy step for every two physics steps
     action_space = 9  # dim of action
@@ -152,7 +155,7 @@ class FrankaPivotingEnvCfg(DirectRLEnvCfg):
 
     # cube object
     cube: RigidObjectCfg = RigidObjectCfg(
-        prim_path="/World/envs/env_.*/ToyCube",   # ✅ global path with regex
+        prim_path="/World/envs/env_.*/ToyCube",   # global path with regex
         spawn=sim_utils.UsdFileCfg(
             usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Blocks/DexCube/dex_cube_instanceable.usd",
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
@@ -166,8 +169,6 @@ class FrankaPivotingEnvCfg(DirectRLEnvCfg):
             rot=(1.0, 0.0, 0.0, 0.0),
         ),
     )
-
-
 
 
     # ground plane / terrain definition
@@ -202,6 +203,9 @@ Actual RL loop callback / env:
 - reset
 """
 class FrankaPivotingEnv(DirectRLEnv):
+    """
+    Implement the RL environment logic for one simulation step (How one RL step is computed).
+    """
     # pre-physics step calls
     #   |-- _pre_physics_step(action)
     #   |-- _apply_action()
@@ -233,14 +237,19 @@ class FrankaPivotingEnv(DirectRLEnv):
             return torch.tensor([px, py, pz, qw, qx, qy, qz], device=device)
 
         self.dt = self.cfg.sim.dt * self.cfg.decimation
+        print("\n\n\n\n\n\n")
+        print(f"[INFO] FrankaPivotingEnv dt: {self.dt}")
 
         # create auxiliary variables for computing applied action, observations and rewards
         self.robot_dof_lower_limits = self._robot.data.soft_joint_pos_limits[0, :, 0].to(device=self.device)
         self.robot_dof_upper_limits = self._robot.data.soft_joint_pos_limits[0, :, 1].to(device=self.device)
+        print(f"[INFO] robot_dof_lower_limits: {self.robot_dof_lower_limits}")
+        print(f"[INFO] robot_dof_upper_limits: {self.robot_dof_upper_limits}")
 
         self.robot_dof_speed_scales = torch.ones_like(self.robot_dof_lower_limits)
         self.robot_dof_speed_scales[self._robot.find_joints("panda_finger_joint1")[0]] = 0.1
         self.robot_dof_speed_scales[self._robot.find_joints("panda_finger_joint2")[0]] = 0.1
+        print(f"robot_dof_speed_scales: {self.robot_dof_speed_scales}")
 
         self.robot_dof_targets = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
 
@@ -250,25 +259,33 @@ class FrankaPivotingEnv(DirectRLEnv):
             UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/Robot/panda_link7")),
             self.device,
         )
+        print(f"[INFO] hand_pose: {hand_pose}")
+
         lfinger_pose = get_env_local_pose(
             self.scene.env_origins[0],
             UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/Robot/panda_leftfinger")),
             self.device,
         )
+        print(f"[INFO] lfinger_pose: {lfinger_pose}")
+
         rfinger_pose = get_env_local_pose(
             self.scene.env_origins[0],
             UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/Robot/panda_rightfinger")),
             self.device,
         )
+        print(f"[INFO] rfinger_pose: {rfinger_pose}")   
 
         finger_pose = torch.zeros(7, device=self.device)
         finger_pose[0:3] = (lfinger_pose[0:3] + rfinger_pose[0:3]) / 2.0
         finger_pose[3:7] = lfinger_pose[3:7]
         hand_pose_inv_rot, hand_pose_inv_pos = tf_inverse(hand_pose[3:7], hand_pose[0:3])
+        print(f"[INFO] hand_pose_inv_pos: {hand_pose_inv_pos}, hand_pose_inv_rot: {hand_pose_inv_rot}")
 
         robot_local_grasp_pose_rot, robot_local_pose_pos = tf_combine(
             hand_pose_inv_rot, hand_pose_inv_pos, finger_pose[3:7], finger_pose[0:3]
         )
+        print(f"[INFO] robot_local_grasp_pose_rot: {robot_local_grasp_pose_rot}, robot_local_pose_pos: {robot_local_pose_pos}")
+
         robot_local_pose_pos += torch.tensor([0, 0.04, 0], device=self.device)
         self.robot_local_grasp_pos = robot_local_pose_pos.repeat((self.num_envs, 1))
         self.robot_local_grasp_rot = robot_local_grasp_pose_rot.repeat((self.num_envs, 1))
@@ -276,6 +293,8 @@ class FrankaPivotingEnv(DirectRLEnv):
         drawer_local_grasp_pose = torch.tensor([0.3, 0.01, 0.0, 1.0, 0.0, 0.0, 0.0], device=self.device)
         self.drawer_local_grasp_pos = drawer_local_grasp_pose[0:3].repeat((self.num_envs, 1))
         self.drawer_local_grasp_rot = drawer_local_grasp_pose[3:7].repeat((self.num_envs, 1))
+        print(f"[INFO] drawer_local_grasp_pos: {self.drawer_local_grasp_pos}")
+        print(f"[INFO] drawer_local_grasp_rot: {self.drawer_local_grasp_rot}")  
 
         self.gripper_forward_axis = torch.tensor([0, 0, 1], device=self.device, dtype=torch.float32).repeat(
             (self.num_envs, 1)
@@ -289,11 +308,17 @@ class FrankaPivotingEnv(DirectRLEnv):
         self.drawer_up_axis = torch.tensor([0, 0, 1], device=self.device, dtype=torch.float32).repeat(
             (self.num_envs, 1)
         )
+        print(f"[INFO] gripper_forward_axis: {self.gripper_forward_axis}")
+        print(f"[INFO] drawer_inward_axis: {self.drawer_inward_axis}")
+        print(f"[INFO] gripper_up_axis: {self.gripper_up_axis}")
+        print(f"[INFO] drawer_up_axis: {self.drawer_up_axis}")
 
         self.hand_link_idx = self._robot.find_bodies("panda_link7")[0][0]
         self.left_finger_link_idx = self._robot.find_bodies("panda_leftfinger")[0][0]
         self.right_finger_link_idx = self._robot.find_bodies("panda_rightfinger")[0][0]
         self.drawer_link_idx = self._cabinet.find_bodies("drawer_top")[0][0]
+        print(f"[INFO] hand_link_idx: {self.hand_link_idx}", f"left_finger_link_idx: {self.left_finger_link_idx}", 
+              f"right_finger_link_idx: {self.right_finger_link_idx}", f"drawer_link_idx: {self.drawer_link_idx}")
 
         self.robot_grasp_rot = torch.zeros((self.num_envs, 4), device=self.device)
         self.robot_grasp_pos = torch.zeros((self.num_envs, 3), device=self.device)
@@ -301,11 +326,12 @@ class FrankaPivotingEnv(DirectRLEnv):
         self.drawer_grasp_pos = torch.zeros((self.num_envs, 3), device=self.device)
 
     def _setup_scene(self):  
-        # Instantiating the robot and cabinet as Articulation objects from their configs. 
+        # Instantiating the assets (robot and cabinet) as Articulation objects from their configs. 
         self._robot = Articulation(self.cfg.robot)
         self._cabinet = Articulation(self.cfg.cabinet)
         self._cube = self.cfg.cube.class_type(self.cfg.cube)
 
+        # Registering the articulations and rigid objects to the scene for simulation.
         self.scene.articulations["robot"] = self._robot
         self.scene.articulations["cabinet"] = self._cabinet
         self.scene.rigid_objects["cube"] = self._cube
@@ -328,9 +354,13 @@ class FrankaPivotingEnv(DirectRLEnv):
     How the policy actions map to actuator commands (joint-space or cartesian-space).
     """
     def _pre_physics_step(self, actions: torch.Tensor):
+        """Maps the normalized actions from the policy to the robot's joint position targets."""
         self.actions = actions.clone().clamp(-1.0, 1.0)  # create a separate copy of actions and clamps / bounds it within [-1, 1]
         targets = self.robot_dof_targets + self.robot_dof_speed_scales * self.dt * self.actions * self.cfg.action_scale
         self.robot_dof_targets[:] = torch.clamp(targets, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
+        # print(f"[DEBUG] actions: {self.actions}")  # repeats
+        # print(f"[DEBUG] robot_dof_targets: {self.robot_dof_targets}")
+        # print(f"[DEBUG] targets: {targets}")
 
     def _apply_action(self):
         self._robot.set_joint_position_target(self.robot_dof_targets)
@@ -342,6 +372,7 @@ class FrankaPivotingEnv(DirectRLEnv):
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         terminated = self._cabinet.data.joint_pos[:, 3] > 0.39
         truncated = self.episode_length_buf >= self.max_episode_length - 1
+        # print(f"[DEBUG] terminated: {terminated}", f"truncated: {truncated}")  # repeats
         return terminated, truncated
 
     def _get_rewards(self) -> torch.Tensor:
@@ -349,6 +380,8 @@ class FrankaPivotingEnv(DirectRLEnv):
         self._compute_intermediate_values()
         robot_left_finger_pos = self._robot.data.body_link_pos_w[:, self.left_finger_link_idx]
         robot_right_finger_pos = self._robot.data.body_link_pos_w[:, self.right_finger_link_idx]
+        # print(f"[DEBUG] robot_left_finger_pos: {robot_left_finger_pos}", 
+        #       f"robot_right_finger_pos: {robot_right_finger_pos}")  # repeats
 
         return self._compute_rewards(
             self.actions,
@@ -392,6 +425,8 @@ class FrankaPivotingEnv(DirectRLEnv):
         joint_vel = torch.zeros_like(joint_pos)
         self._robot.set_joint_position_target(joint_pos, env_ids=env_ids)
         self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+        print(f"[DEBUG] Reset robot joint_pos: {joint_pos}")
+        print(f"[DEBUG] Reset robot joint_vel: {joint_vel}")  # repeats
 
         # cabinet state
         zeros = torch.zeros((len(env_ids), self._cabinet.num_joints), device=self.device)
@@ -422,6 +457,8 @@ class FrankaPivotingEnv(DirectRLEnv):
             ),
             dim=-1,
         )
+        # print(f"[DEBUG] dof_pos_scaled: {dof_pos_scaled}")  # repeats
+        # print(f"[DEBUG] to_target: {to_target}")
         return {"policy": torch.clamp(obs, -5.0, 5.0)}
 
     # auxiliary methods
@@ -508,6 +545,10 @@ class FrankaPivotingEnv(DirectRLEnv):
         finger_dist_penalty += torch.where(lfinger_dist < 0, lfinger_dist, torch.zeros_like(lfinger_dist))
         finger_dist_penalty += torch.where(rfinger_dist < 0, rfinger_dist, torch.zeros_like(rfinger_dist))
 
+        # print(f"[DEBUG] dist_reward: {dist_reward}", f"rot_reward: {rot_reward}", f"open_reward: {open_reward}",
+        #       f"action_penalty: {action_penalty}", f"lfinger_dist: {lfinger_dist}", f"rfinger_dist: {rfinger_dist}",
+        #       f"finger_dist_penalty: {finger_dist_penalty}")  # repeats
+
         rewards = (
             dist_reward_scale * dist_reward
             + rot_reward_scale * rot_reward
@@ -551,4 +592,6 @@ class FrankaPivotingEnv(DirectRLEnv):
             drawer_rot, drawer_pos, drawer_local_grasp_rot, drawer_local_grasp_pos
         )
 
+        # print(f"[DEBUG] global_franka_pos: {global_franka_pos}", f"global_franka_rot: {global_franka_rot}")  # repeats
+        # print(f"[DEBUG] global_drawer_pos: {global_drawer_pos}", f"global_drawer_rot: {global_drawer_rot}")
         return global_franka_rot, global_franka_pos, global_drawer_rot, global_drawer_pos
