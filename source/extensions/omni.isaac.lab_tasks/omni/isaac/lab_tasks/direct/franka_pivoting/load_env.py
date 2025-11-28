@@ -15,7 +15,7 @@ simulation_app = app_launcher.app
 
 # ---------- Imports AFTER app starts ----------
 import torch
-from omni.isaac.lab_tasks.direct.franka_pivoting.franka_pivoting_env_custom import (
+from omni.isaac.lab_tasks.direct.franka_pivoting.test_franka_pivoting_env_custom import (
     FrankaPivotingEnvCfg,
     FrankaPivotingEnv,
 )
