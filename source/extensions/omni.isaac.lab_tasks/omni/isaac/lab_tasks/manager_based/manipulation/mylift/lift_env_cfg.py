@@ -20,7 +20,6 @@ from omni.isaac.lab.sensors.frame_transformer.frame_transformer_cfg import Frame
 from omni.isaac.lab.sim.spawners.from_files.from_files_cfg import GroundPlaneCfg, UsdFileCfg
 from omni.isaac.lab.utils import configclass
 from omni.isaac.lab.utils.assets import ISAAC_NUCLEUS_DIR
-
 from . import mdp
 
 ##

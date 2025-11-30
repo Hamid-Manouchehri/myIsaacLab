@@ -11,8 +11,8 @@ from omni.isaac.lab.sim.spawners.from_files.from_files_cfg import UsdFileCfg
 from omni.isaac.lab.utils import configclass
 from omni.isaac.lab.utils.assets import ISAAC_NUCLEUS_DIR
 
-from omni.isaac.lab_tasks.manager_based.manipulation.lift import mdp
-from omni.isaac.lab_tasks.manager_based.manipulation.lift.lift_env_cfg import LiftEnvCfg
+from omni.isaac.lab_tasks.manager_based.manipulation.mylift import mdp
+from omni.isaac.lab_tasks.manager_based.manipulation.mylift.lift_env_cfg import LiftEnvCfg
 
 ##
 # Pre-defined configs
@@ -42,6 +42,11 @@ class FrankaCubeLiftEnvCfg(LiftEnvCfg):
         )
         # Set the body name for the end effector
         self.commands.object_pose.body_name = "panda_hand"
+
+        
+        self.commands.object_pose.ranges.roll  = (3.14, 3.14)    # fixed roll
+        self.commands.object_pose.ranges.pitch = (0.0, 0.0)      # fixed pitch
+        self.commands.object_pose.ranges.yaw   = (0.0, 0.0)      # fixed yaw = 90° around z
 
         # Set Cube as object
         self.scene.object = RigidObjectCfg(
