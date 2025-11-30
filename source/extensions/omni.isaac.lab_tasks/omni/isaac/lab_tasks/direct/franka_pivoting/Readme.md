@@ -8,5 +8,5 @@ isaaclab.bat -p source\standalone\workflows\rl_games\train.py --task Isaac_Frank
 
 Playing (windows):
 ```
-isaaclab.bat -p source\standalone\workflows\rl_games\play.py --task Isaac_Franka_Pivoting_Direct_v0 --num_env 128 --use_last_checkpoint
+isaaclab.bat -p source\standalone\workflows\rl_games\play.py --task Isaac_Franka_Pivoting_Direct_v0 --num_envs 128 --use_last_checkpoint
 ```
