@@ -45,7 +45,7 @@ class FrankaPivotingEnvCfg(DirectRLEnvCfg):
     episode_length_s = 8.3333  # 500 timesteps, how long an episode is in sim steps
     decimation = 2  # one policy step for every two physics steps
     action_space = 9  # dim of action
-    observation_space = 23  # dim of observation
+    observation_space = 24  # dim of observation: 9 (dof_pos) + 9 (dof_vel) + 3 (to_target) + 1 (cube_height) + 2 (finger_pos) = 24
     state_space = 0
 
     # simulation parameters
@@ -189,11 +189,12 @@ class FrankaPivotingEnvCfg(DirectRLEnvCfg):
     dof_velocity_scale = 0.1
 
     # reward scales
-    dist_reward_scale = 1.5
-    rot_reward_scale = 1.5
-    open_reward_scale = 10.0
+    dist_reward_scale = 2.0
+    rot_reward_scale = 0.5  # reduced since orientation doesn't matter much
+    lift_reward_scale = 15.0  # increased to encourage lifting
+    grasp_reward_scale = 5.0  # reward for successful grasp
     action_penalty_scale = 0.05
-    finger_reward_scale = 2.0
+    finger_reward_scale = 3.0  # increased to encourage finger closing
 
 """
 Actual RL loop callback / env:
@@ -237,38 +238,31 @@ class FrankaPivotingEnv(DirectRLEnv):
             return torch.tensor([px, py, pz, qw, qx, qy, qz], device=device)
 
         self.dt = self.cfg.sim.dt * self.cfg.decimation
-        # print("\n\n\n\n\n\n")
-        # print(f"[INFO] FrankaPivotingEnv dt: {self.dt}")
 
         # create auxiliary variables for computing applied action, observations and rewards
         self.robot_dof_lower_limits = self._robot.data.soft_joint_pos_limits[0, :, 0].to(device=self.device)
         self.robot_dof_upper_limits = self._robot.data.soft_joint_pos_limits[0, :, 1].to(device=self.device)
-        # print(f"[INFO] robot_dof_lower_limits: {self.robot_dof_lower_limits}")
-        # print(f"[INFO] robot_dof_upper_limits: {self.robot_dof_upper_limits}")
 
         self.robot_dof_speed_scales = torch.ones_like(self.robot_dof_lower_limits)
         self.robot_dof_speed_scales[self._robot.find_joints("panda_finger_joint1")[0]] = 0.1
         self.robot_dof_speed_scales[self._robot.find_joints("panda_finger_joint2")[0]] = 0.1
-        # print(f"robot_dof_speed_scales: {self.robot_dof_speed_scales}")
 
         self.robot_dof_targets = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
 
         stage = get_current_stage()  # Get the whole USD stage
 
-        # compute hand_pose in env (local) coordinates
+        # compute hand_pose in env (local) coordinates (env origin in world coordinates: self.scene.env_origins)
         hand_pose = get_env_local_pose(
             self.scene.env_origins[0],
             UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/Robot/panda_link7")),
             self.device,
         )
-        # print(f"[INFO] hand_pose: {hand_pose}")
 
         lfinger_pose = get_env_local_pose(
             self.scene.env_origins[0],
             UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/Robot/panda_leftfinger")),
             self.device,
         )
-        # print(f"[INFO] lfinger_pose: {lfinger_pose}")
 
         rfinger_pose = get_env_local_pose(
             self.scene.env_origins[0],
@@ -282,30 +276,26 @@ class FrankaPivotingEnv(DirectRLEnv):
         finger_pose[3:7] = lfinger_pose[3:7]
         # print(f"[INFO] finger_pose: {finger_pose}")
         hand_pose_inv_rot, hand_pose_inv_pos = tf_inverse(hand_pose[3:7], hand_pose[0:3])
-        # print(f"[INFO] hand_pose_inv_pos: {hand_pose_inv_pos}, hand_pose_inv_rot: {hand_pose_inv_rot}")
 
+        # Orientation and position of the robot's grasp frame relative to the hand frame
         robot_local_grasp_pose_rot, robot_local_pose_pos = tf_combine(
             hand_pose_inv_rot, hand_pose_inv_pos, finger_pose[3:7], finger_pose[0:3]
         )
         # print(f"[INFO] robot_local_grasp_pose_rot: {robot_local_grasp_pose_rot}, robot_local_pose_pos: {robot_local_pose_pos}")
 
         robot_local_pose_pos += torch.tensor([0, 0.04, 0], device=self.device)
-        self.robot_local_grasp_pos = robot_local_pose_pos.repeat((self.num_envs, 1))
+        self.robot_local_grasp_pos = robot_local_pose_pos.repeat((self.num_envs, 1))  # Create copies per env.
         self.robot_local_grasp_rot = robot_local_grasp_pose_rot.repeat((self.num_envs, 1))
 
-        # drawer_local_grasp_pose = torch.tensor([0.3, 0.01, 0.0, 1.0, 0.0, 0.0, 0.0], device=self.device)
-        # self.drawer_local_grasp_pos = drawer_local_grasp_pose[0:3].repeat((self.num_envs, 1))
-        # self.drawer_local_grasp_rot = drawer_local_grasp_pose[3:7].repeat((self.num_envs, 1))
-        # print(f"[INFO] drawer_local_grasp_pos: {self.drawer_local_grasp_pos}")
-        # print(f"[INFO] drawer_local_grasp_rot: {self.drawer_local_grasp_rot}")
-
-        cube_local_grasp_pose = torch.tensor([0.0, 0.0, 0.03, 1.0, 0.0, 0.0, 0.0],  # 3cm above cube center, adjust to your USD size
+        # Cube grasp pose: approach from the side (y-axis) at a slight offset
+        # This allows the gripper to approach and grasp the cube from the side
+        cube_local_grasp_pose = torch.tensor([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],  # at cube center
             device=self.device)
         self.cube_local_grasp_pos = cube_local_grasp_pose[0:3].repeat((self.num_envs, 1))
         self.cube_local_grasp_rot = cube_local_grasp_pose[3:7].repeat((self.num_envs, 1))
  
           
-
+        # Define direction vectors in local frame for the gripper and the object, used for orientation rewards.
         self.gripper_forward_axis = torch.tensor([0, 0, 1], device=self.device, dtype=torch.float32).repeat(
             (self.num_envs, 1)
         )
@@ -318,18 +308,13 @@ class FrankaPivotingEnv(DirectRLEnv):
         self.object_up_axis = torch.tensor([0, 0, 1], device=self.device, dtype=torch.float32).repeat(
             (self.num_envs, 1)
         )
-        # print(f"[INFO] gripper_forward_axis: {self.gripper_forward_axis}")
-        # print(f"[INFO] drawer_inward_axis: {self.drawer_inward_axis}")
-        # print(f"[INFO] gripper_up_axis: {self.gripper_up_axis}")
-        # print(f"[INFO] drawer_up_axis: {self.drawer_up_axis}")
 
+        # We use those indices later to read positions/rotations of those specific links for rewards, observations, etc.
         self.hand_link_idx = self._robot.find_bodies("panda_link7")[0][0]
         self.left_finger_link_idx = self._robot.find_bodies("panda_leftfinger")[0][0]
         self.right_finger_link_idx = self._robot.find_bodies("panda_rightfinger")[0][0]
-        # self.drawer_link_idx = self._cabinet.find_bodies("drawer_top")[0][0]
-        # print(f"[INFO] hand_link_idx: {self.hand_link_idx}", f"left_finger_link_idx: {self.left_finger_link_idx}", 
-        #       f"right_finger_link_idx: {self.right_finger_link_idx}", f"drawer_link_idx: {self.drawer_link_idx}")
 
+        # Buffers to store the grasp poses in world coordinates per env:
         self.robot_grasp_rot = torch.zeros((self.num_envs, 4), device=self.device)
         self.robot_grasp_pos = torch.zeros((self.num_envs, 3), device=self.device)
         self.cube_grasp_rot = torch.zeros((self.num_envs, 4), device=self.device)
@@ -337,7 +322,10 @@ class FrankaPivotingEnv(DirectRLEnv):
 
 
     def _setup_scene(self):  
-        # Instantiating the assets (robot and cabinet) as Articulation objects from their configs. 
+        """
+        Instantiating the assets (robot and cabinet) as Articulation objects from their configs. 
+        Building the scene once before the RL loop (training).
+        """
         self._robot = Articulation(self.cfg.robot)
         self._cabinet = Articulation(self.cfg.cabinet)
         self._cube = self.cfg.cube.class_type(self.cfg.cube)
@@ -367,15 +355,13 @@ class FrankaPivotingEnv(DirectRLEnv):
     def _pre_physics_step(self, actions: torch.Tensor):
         """Maps the normalized actions from the policy to the robot's joint position targets."""
         self.actions = actions.clone().clamp(-1.0, 1.0)  # create a separate copy of actions and clamps / bounds it within [-1, 1]
-        targets = self.robot_dof_targets + self.robot_dof_speed_scales * self.dt * self.actions * self.cfg.action_scale
+        targets = self.robot_dof_targets + self.robot_dof_speed_scales * self.dt * self.actions * self.cfg.action_scale  # Treat actions as scaled joint velocity commands.
         self.robot_dof_targets[:] = torch.clamp(targets, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
-        # print(f"[DEBUG] actions: {self.actions}")  # repeats
-        # print(f"[DEBUG] robot_dof_targets: {self.robot_dof_targets}")
-        # print(f"[DEBUG] targets: {targets}")
+
 
     def _apply_action(self):
         self._robot.set_joint_position_target(self.robot_dof_targets)
-        pass
+
 
     # post-physics step calls
     """
@@ -383,30 +369,23 @@ class FrankaPivotingEnv(DirectRLEnv):
     """
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         cube_pos = self._cube.data.root_pos_w
-        cube_quat = self._cube.data.root_quat_w
 
-        # success condition: lifted above 0.95 m AND tilted at least 45 deg
+        # success condition: lifted above 1.0 m
         cube_height = cube_pos[:, 2]
-        world_up = torch.tensor([0, 0, 1], device=self.device).repeat((self.num_envs, 1))
-        cube_up = tf_vector(cube_quat, self.object_up_axis)
-        cos_tilt = (cube_up * world_up).sum(dim=-1)
-        # cos 45deg ≈ 0.707
-        tilted_enough = cos_tilt < 0.7
+        terminated = cube_height > 1.0
 
-        terminated = (cube_height > 0.95) & tilted_enough
         truncated = self.episode_length_buf >= self.max_episode_length - 1
         return terminated, truncated
 
 
     def _get_rewards(self) -> torch.Tensor:
-        # Refresh the intermediate values after the physics steps
-        self._compute_intermediate_values()
+        self._compute_intermediate_values()  # updates cached grasp poses
         robot_left_finger_pos = self._robot.data.body_link_pos_w[:, self.left_finger_link_idx]
         robot_right_finger_pos = self._robot.data.body_link_pos_w[:, self.right_finger_link_idx]
         cube_pos = self._cube.data.root_pos_w
         cube_quat = self._cube.data.root_quat_w
 
-        return self._compute_rewards(
+        return self._compute_rewards(  # Compute scalar rewards per env.
             self.actions,
             cube_pos,
             cube_quat,
@@ -423,7 +402,8 @@ class FrankaPivotingEnv(DirectRLEnv):
             self.num_envs,
             self.cfg.dist_reward_scale,
             self.cfg.rot_reward_scale,
-            self.cfg.open_reward_scale,       # reuse as lift/pivot scale
+            self.cfg.lift_reward_scale,
+            self.cfg.grasp_reward_scale,
             self.cfg.action_penalty_scale,
             self.cfg.finger_reward_scale,
             self._robot.data.joint_pos,
@@ -438,63 +418,65 @@ class FrankaPivotingEnv(DirectRLEnv):
     - Updates cached grasp poses.
     """
     def _reset_idx(self, env_ids: torch.Tensor | None):
-        super()._reset_idx(env_ids)
-        # robot state
+        if env_ids is None:
+            return
+        super()._reset_idx(env_ids)  # clear episode-level buffers for each env
+        # robot state - add slight randomization for exploration
+        num_reset = len(env_ids)
         joint_pos = self._robot.data.default_joint_pos[env_ids] + sample_uniform(
-            -0.125,
-            0.125,
-            (len(env_ids), self._robot.num_joints),
+            -0.1,
+            0.1,
+            (num_reset, self._robot.num_joints),
             self.device,
         )
         joint_pos = torch.clamp(joint_pos, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
-        joint_vel = torch.zeros_like(joint_pos)
+        joint_vel = torch.zeros_like(joint_pos)  # zero-initial velocity
         self._robot.set_joint_position_target(joint_pos, env_ids=env_ids)
         self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
-        # print(f"[DEBUG] Reset robot joint_pos: {joint_pos}")
-        # print(f"[DEBUG] Reset robot joint_vel: {joint_vel}")  # repeats
 
-        # cube state: randomize position/orientation slightly around nominal
+        # cube state - add slight randomization in position (small xy offset, keep z the same)
         cube_state = self._cube.data.default_root_state[env_ids].clone()
-
-        # e.g., randomize xy in a small square and small orientation noise
-        noise_xy = sample_uniform(-0.02, 0.02, (len(env_ids), 2), self.device)
-        # Convert from local to world coordinates by adding env origins
         cube_state[:, 0:3] = cube_state[:, 0:3] + self.scene.env_origins[env_ids]
-        cube_state[:, 0:2] += noise_xy  # x, y
-        # small yaw noise: you can convert to quaternion or leave zero for now
-
+        # Add small random offset in x and y (within 5cm)
+        cube_state[:, 0:2] += sample_uniform(
+            -0.05,
+            0.05,
+            (num_reset, 2),
+            self.device,
+        )
         self._cube.write_root_state_to_sim(cube_state, env_ids=env_ids)
-
-
-        # cabinet state
-        zeros = torch.zeros((len(env_ids), self._cabinet.num_joints), device=self.device)
-        self._cabinet.write_joint_state_to_sim(zeros, zeros, env_ids=env_ids)
-
-        # Need to refresh the intermediate values so that _get_observations() can use the latest values
         self._compute_intermediate_values(env_ids)
 
-    """
-    What the policy observes.
-    """
+
     def _get_observations(self) -> dict:
-        dof_pos_scaled = (
+        # What the policy observes at each RL step.
+        dof_pos_scaled = (  # Normalized joint positions to [-1, 1]
             2.0
             * (self._robot.data.joint_pos - self.robot_dof_lower_limits)
             / (self.robot_dof_upper_limits - self.robot_dof_lower_limits)
             - 1.0
         )
-        to_target = self.cube_grasp_pos - self.robot_grasp_pos
+
+        to_target = self.cube_grasp_pos - self.robot_grasp_pos  # 3D vector from robot grasp to cube grasp (relative position error)
 
         cube_pos = self._cube.data.root_pos_w
-        cube_quat = self._cube.data.root_quat_w
+        # cube_quat = self._cube.data.root_quat_w
 
         # height feature
         cube_height = cube_pos[:, 2].unsqueeze(-1)  # z in world
 
         # tilt feature: dot(cube_up, world_up), 1=upright, 0=sideways
-        world_up = torch.tensor([0, 0, 1], device=self.device, dtype=torch.float32).repeat((self.num_envs, 1))
-        cube_up = tf_vector(cube_quat, self.object_up_axis)  # same axis as in reward
-        cube_tilt = (cube_up * world_up).sum(dim=-1, keepdim=True)
+        # world_up = torch.tensor([0, 0, 1], device=self.device, dtype=torch.float32).repeat((self.num_envs, 1))
+        # cube_up = tf_vector(cube_quat, self.object_up_axis)  # same axis as in reward
+        # cube_tilt = (cube_up * world_up).sum(dim=-1, keepdim=True)
+
+        # Finger positions (normalized) to help policy learn when to close fingers
+        finger_joint1_idx = self._robot.find_joints("panda_finger_joint1")[0]
+        finger_joint2_idx = self._robot.find_joints("panda_finger_joint2")[0]
+        finger_pos = self._robot.data.joint_pos[:, [finger_joint1_idx, finger_joint2_idx]]
+        # Normalize finger positions (0.0 = fully open, 0.04 = default open, normalize to [-1, 1])
+        finger_pos_normalized = (finger_pos / 0.04) * 2.0 - 1.0  # maps [0, 0.04] to [-1, 1]
+        finger_pos_normalized = finger_pos_normalized.squeeze()
 
         obs = torch.cat(
             (
@@ -502,20 +484,18 @@ class FrankaPivotingEnv(DirectRLEnv):
                 self._robot.data.joint_vel * self.cfg.dof_velocity_scale,  # 9
                 to_target,                                       # 3
                 cube_height,                                     # 1
-                cube_tilt,                                       # 1
+                finger_pos_normalized,                           # 2
             ),
             dim=-1,
         )
 
-        # print(f"[DEBUG] dof_pos_scaled: {dof_pos_scaled}")  # repeats
-        # print(f"[DEBUG] to_target: {to_target}")
         return {"policy": torch.clamp(obs, -5.0, 5.0)}
 
     # auxiliary methods
 
-    def _compute_intermediate_values(self, env_ids: torch.Tensor | None = None):
+    def _compute_intermediate_values(self, env_ids: torch.Tensor | slice | None = None):
         if env_ids is None:
-            env_ids = self._robot._ALL_INDICES
+            env_ids = slice(None)  # Use slice instead of protected member
 
         hand_pos = self._robot.data.body_link_pos_w[env_ids, self.hand_link_idx]
         hand_rot = self._robot.data.body_link_quat_w[env_ids, self.hand_link_idx]
@@ -524,7 +504,7 @@ class FrankaPivotingEnv(DirectRLEnv):
         (self.robot_grasp_rot[env_ids], 
          self.robot_grasp_pos[env_ids],
         self.cube_grasp_rot[env_ids], 
-        self.cube_grasp_pos[env_ids]) = self._compute_grasp_transforms(
+        self.cube_grasp_pos[env_ids]) = self._compute_grasp_transforms(  # Compute global grasp poses in world frame for each env.
             hand_rot, hand_pos,
             self.robot_local_grasp_rot[env_ids],
             self.robot_local_grasp_pos[env_ids],
@@ -554,18 +534,19 @@ class FrankaPivotingEnv(DirectRLEnv):
         num_envs,
         dist_reward_scale,
         rot_reward_scale,
-        lift_reward_scale,       # formerly open_reward_scale
+        lift_reward_scale,
+        grasp_reward_scale,
         action_penalty_scale,
         finger_reward_scale,
         joint_positions,
     ):
-        # 1) distance to cube grasp frame
+        # 1) Distance to cube: encourage approaching the cube
         d = torch.norm(franka_grasp_pos - cube_grasp_pos, p=2, dim=-1)
         dist_reward = 1.0 / (1.0 + d**2)
         dist_reward = dist_reward**2
-        dist_reward = torch.where(d <= 0.02, dist_reward * 2, dist_reward)
+        dist_reward = torch.where(d <= 0.05, dist_reward * 2, dist_reward)  # bonus for within 5cm
 
-        # 2) orientation: align gripper with cube side
+        # 2) Orientation: optional alignment (reduced weight since orientation doesn't matter)
         axis1 = tf_vector(franka_grasp_rot, gripper_forward_axis)
         axis2 = tf_vector(cube_grasp_rot, object_inward_axis)
         axis3 = tf_vector(franka_grasp_rot, gripper_up_axis)
@@ -575,39 +556,64 @@ class FrankaPivotingEnv(DirectRLEnv):
         dot2 = torch.bmm(axis3.view(num_envs, 1, 3), axis4.view(num_envs, 3, 1)).squeeze(-1).squeeze(-1)
         rot_reward = 0.5 * (torch.sign(dot1) * dot1**2 + torch.sign(dot2) * dot2**2)
 
-        # 3) lift + pivot: encourage height and side tilt
+        # 3) Finger closing reward: encourage closing fingers when near the cube
+        # Get finger joint positions (last two joints are fingers)
+        finger_joint1_pos = joint_positions[:, -2]  # left finger
+        finger_joint2_pos = joint_positions[:, -1]  # right finger
+        finger_open_pos = 0.035  # default open position
+        
+        # Calculate how closed the fingers are (0 = fully open, 1 = fully closed)
+        finger1_closed = torch.clamp((finger_open_pos - finger_joint1_pos) / finger_open_pos, 0.0, 1.0)
+        finger2_closed = torch.clamp((finger_open_pos - finger_joint2_pos) / finger_open_pos, 0.0, 1.0)
+        finger_closed_avg = (finger1_closed + finger2_closed) / 2.0
+        
+        # Reward closing fingers when near the cube (within 10cm)
+        near_cube = d < 0.10
+        finger_reward = finger_closed_avg * near_cube.float()
+
+        # 4) Lift reward: progressive reward for lifting the cube
         cube_height = cube_pos[:, 2]
-        world_up = torch.tensor([0, 0, 1], device=self.device, dtype=torch.float32).repeat((num_envs, 1))
-        cube_up = tf_vector(cube_quat, object_up_axis)
-        cos_tilt = (cube_up * world_up).sum(dim=-1)  # 1 upright, 0 sideways
+        initial_height = 0.9  # initial cube height from config
+        target_height = 1.0  # target lift height
+        
+        # Progressive reward: any height increase is rewarded, with bonus for reaching target
+        height_increase = cube_height - initial_height
+        lift_reward = torch.clamp(height_increase / (target_height - initial_height), 0.0, 1.0)
+        # Bonus for reaching target height
+        lift_reward = torch.where(cube_height >= target_height, lift_reward + 0.5, lift_reward)
 
-        # lift reward: positive when cube above threshold
-        target_height = 0.95  # adjust to your scene
-        lift_reward = torch.clamp(cube_height - target_height, min=0.0)
+        # 5) Grasp reward: reward successful grasp (cube lifted while fingers are closed)
+        # A grasp is successful if:
+        # - Cube is above initial height (being lifted)
+        # - Fingers are closed (both fingers closed more than 50%)
+        # - Cube is near gripper (within 5cm)
+        fingers_closed = (finger_closed_avg > 0.5) & (d < 0.05)
+        cube_lifted = cube_height > initial_height + 0.02  # at least 2cm above initial
+        is_grasped = fingers_closed & cube_lifted
+        grasp_reward = is_grasped.float()
 
-        # pivot reward: maximize 1 - |cos_tilt| to push cube towards 90deg tilt
-        pivot_reward = 1.0 - torch.abs(cos_tilt)
-
-        # 4) action penalty
+        # 6) Action penalty: discourage excessive actions
         action_penalty = torch.sum(actions**2, dim=-1)
 
-        # 5) optional: finger “wrap” or closeness along one axis of cube (simple version: drop it)
-        finger_dist_penalty = torch.zeros_like(d)  # start without extra hand-shape shaping
-
+        # Combine all rewards
         rewards = (
             dist_reward_scale * dist_reward
             + rot_reward_scale * rot_reward
-            + lift_reward_scale * (lift_reward + pivot_reward)
-            + finger_reward_scale * finger_dist_penalty
+            + lift_reward_scale * lift_reward
+            + grasp_reward_scale * grasp_reward
+            + finger_reward_scale * finger_reward
             - action_penalty_scale * action_penalty
         )
 
-        self.extras["log"] = {
-            "dist_reward": (dist_reward_scale * dist_reward).mean(),
-            "rot_reward": (rot_reward_scale * rot_reward).mean(),
-            "lift_pivot_reward": (lift_reward_scale * (lift_reward + pivot_reward)).mean(),
-            "action_penalty": (-action_penalty_scale * action_penalty).mean(),
-        }
+        # Optional: log rewards for debugging
+        # self.extras["log"] = {
+        #     "dist_reward": (dist_reward_scale * dist_reward).mean(),
+        #     "rot_reward": (rot_reward_scale * rot_reward).mean(),
+        #     "lift_reward": (lift_reward_scale * lift_reward).mean(),
+        #     "grasp_reward": (grasp_reward_scale * grasp_reward).mean(),
+        #     "finger_reward": (finger_reward_scale * finger_reward).mean(),
+        #     "action_penalty": (-action_penalty_scale * action_penalty).mean(),
+        # }
 
         return rewards
 
@@ -618,18 +624,16 @@ class FrankaPivotingEnv(DirectRLEnv):
         hand_pos,
         franka_local_grasp_rot,
         franka_local_grasp_pos,
-        drawer_rot,
-        drawer_pos,
-        drawer_local_grasp_rot,
-        drawer_local_grasp_pos,
+        cube_rot,
+        cube_pos,
+        cube_local_grasp_rot,
+        cube_local_grasp_pos,
     ):
         global_franka_rot, global_franka_pos = tf_combine(
             hand_rot, hand_pos, franka_local_grasp_rot, franka_local_grasp_pos
         )
         global_drawer_rot, global_drawer_pos = tf_combine(
-            drawer_rot, drawer_pos, drawer_local_grasp_rot, drawer_local_grasp_pos
+            cube_rot, cube_pos, cube_local_grasp_rot, cube_local_grasp_pos
         )
 
-        # print(f"[DEBUG] global_franka_pos: {global_franka_pos}", f"global_franka_rot: {global_franka_rot}")  # repeats
-        # print(f"[DEBUG] global_drawer_pos: {global_drawer_pos}", f"global_drawer_rot: {global_drawer_rot}")
         return global_franka_rot, global_franka_pos, global_drawer_rot, global_drawer_pos
