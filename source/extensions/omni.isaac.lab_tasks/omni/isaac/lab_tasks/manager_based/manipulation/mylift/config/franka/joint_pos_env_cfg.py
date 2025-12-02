@@ -26,7 +26,6 @@ class FrankaCubeLiftEnvCfg(LiftEnvCfg):
     def __post_init__(self):
         # post init of parent
         super().__post_init__()
-
         # Set Franka as robot
         self.scene.robot = FRANKA_PANDA_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
@@ -42,11 +41,6 @@ class FrankaCubeLiftEnvCfg(LiftEnvCfg):
         )
         # Set the body name for the end effector
         self.commands.object_pose.body_name = "panda_hand"
-
-        
-        self.commands.object_pose.ranges.roll  = (3.14, 3.14)    # fixed roll
-        self.commands.object_pose.ranges.pitch = (0.0, 0.0)      # fixed pitch
-        self.commands.object_pose.ranges.yaw   = (0.0, 0.0)      # fixed yaw = 90° around z
 
         # Set Cube as object
         self.scene.object = RigidObjectCfg(

@@ -14,20 +14,7 @@ from omni.isaac.lab.utils.math import subtract_frame_transforms
 
 if TYPE_CHECKING:
     from omni.isaac.lab.envs import ManagerBasedRLEnv
-
-def cube_height(
-    env: "ManagerBasedRLEnv",
-    cube_cfg: SceneEntityCfg = SceneEntityCfg("cube"),
-) -> torch.Tensor:
-    cube: RigidObject = env.scene.rigid_objects[cube_cfg.name]
-    pos = cube.data.root_pos_w[:, 2:3]  # (num_envs, 1) z height
-
-    # log for RL library
-    env.extras.setdefault("log", {})
-    env.extras["log"]["cube_height"] = pos  # per-env tensor
-
-    return pos
-
+    
 
 def object_position_in_robot_root_frame(
     env: ManagerBasedRLEnv,

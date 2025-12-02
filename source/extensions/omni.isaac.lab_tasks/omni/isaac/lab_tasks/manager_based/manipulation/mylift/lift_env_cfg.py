@@ -69,7 +69,10 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
 
 @configclass
 class CommandsCfg:
-    """Command terms for the MDP."""
+    """
+    Command terms for the MDP.
+    Defines the target object pose for the robot to reach.
+    """
 
     object_pose = mdp.UniformPoseCommandCfg(
         asset_name="robot",
@@ -77,7 +80,8 @@ class CommandsCfg:
         resampling_time_range=(5.0, 5.0),
         debug_vis=True,
         ranges=mdp.UniformPoseCommandCfg.Ranges(
-            pos_x=(0.4, 0.6), pos_y=(-0.25, 0.25), pos_z=(0.25, 0.5), roll=(0.0, 0.0), pitch=(0.0, 0.0), yaw=(0.0, 0.0)
+            # pos_x=(0.4, 0.6), pos_y=(-0.25, 0.25), pos_z=(0.25, 0.5), roll=(3.14, 3.14), pitch=(0.0, 0.0), yaw=(0.0, 0.0)
+            pos_x=(0.4, 0.4), pos_y=(-0.25, -0.25), pos_z=(0.1, 0.1), roll=(3.14, 3.14), pitch=(0.0, 0.0), yaw=(0.0, 0.0)
         ),
     )
 
@@ -170,6 +174,14 @@ class TerminationsCfg:
         func=mdp.root_height_below_minimum, params={"minimum_height": -0.05, "asset_cfg": SceneEntityCfg("object")}
     )
 
+    object_reached_goal = DoneTerm(
+        func=mdp.object_reached_goal,
+        params={
+            "command_name": "object_pose",  # same command used in rewards
+            "threshold": 0.005,              # distance tolerance (meters)
+        },
+    )
+
 
 @configclass
 class CurriculumCfg:
@@ -209,7 +221,7 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
         """Post initialization."""
         # general settings
         self.decimation = 2
-        self.episode_length_s = 5.0
+        self.episode_length_s = 3.0
         # simulation settings
         self.sim.dt = 0.01  # 100Hz
         self.sim.render_interval = self.decimation
