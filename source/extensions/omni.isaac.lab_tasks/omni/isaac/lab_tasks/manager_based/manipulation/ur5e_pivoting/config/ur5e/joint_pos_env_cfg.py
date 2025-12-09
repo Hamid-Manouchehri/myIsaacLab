@@ -8,7 +8,7 @@ import math
 from omni.isaac.lab.utils import configclass
 
 import omni.isaac.lab_tasks.manager_based.manipulation.ur5e_pivoting.mdp as mdp
-from omni.isaac.lab_tasks.manager_based.manipulation.ur5e_pivoting.reach_env_cfg import ReachEnvCfg
+from omni.isaac.lab_tasks.manager_based.manipulation.ur5e_pivoting.pivoting_env_cfg import PivotingEnvCfg
 
 ##
 # Pre-defined configs
@@ -22,7 +22,7 @@ from omni.isaac.lab_assets import UR5E_CFG  # isort: skip
 
 
 @configclass
-class UR10ReachEnvCfg(ReachEnvCfg):
+class UR5ePivotingEnvCfg(PivotingEnvCfg):
     def __post_init__(self):
         # post init of parent
         super().__post_init__()
@@ -46,7 +46,7 @@ class UR10ReachEnvCfg(ReachEnvCfg):
 
 
 @configclass
-class UR10ReachEnvCfg_PLAY(UR10ReachEnvCfg):
+class UR5ePivotingEnvCfg_PLAY(UR5ePivotingEnvCfg):
     def __post_init__(self):
         # post init of parent
         super().__post_init__()
