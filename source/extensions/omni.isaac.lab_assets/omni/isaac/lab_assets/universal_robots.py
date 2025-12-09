@@ -7,7 +7,7 @@
 
 The following configuration parameters are available:
 
-* :obj:`UR10_CFG`: The UR10 arm without a gripper.
+* :obj:`UR5E_CFG`: The UR5e arm without a gripper.
 
 Reference: https://github.com/ros-industrial/universal_robot
 """
@@ -15,16 +15,16 @@ Reference: https://github.com/ros-industrial/universal_robot
 import omni.isaac.lab.sim as sim_utils
 from omni.isaac.lab.actuators import ImplicitActuatorCfg
 from omni.isaac.lab.assets.articulation import ArticulationCfg
-from omni.isaac.lab.utils.assets import ISAACLAB_NUCLEUS_DIR
+from omni.isaac.lab.utils.assets import ISAAC_NUCLEUS_DIR
 
 ##
 # Configuration
 ##
 
 
-UR10_CFG = ArticulationCfg(
+UR5E_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
-        usd_path=f"{ISAACLAB_NUCLEUS_DIR}/Robots/UniversalRobots/UR10/ur10_instanceable.usd",
+        usd_path=f"{ISAAC_NUCLEUS_DIR}/Robots/UniversalRobots/ur5e/ur5e.usd",
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
             disable_gravity=False,
             max_depenetration_velocity=5.0,
@@ -45,10 +45,10 @@ UR10_CFG = ArticulationCfg(
         "arm": ImplicitActuatorCfg(
             joint_names_expr=[".*"],
             velocity_limit=100.0,
-            effort_limit=87.0,
+            effort_limit=60.0,
             stiffness=800.0,
             damping=40.0,
         ),
     },
 )
-"""Configuration of UR-10 arm using implicit actuator models."""
+"""Configuration of UR-5e arm using implicit actuator models."""
