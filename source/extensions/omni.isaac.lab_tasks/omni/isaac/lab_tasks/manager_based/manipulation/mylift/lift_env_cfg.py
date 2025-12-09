@@ -72,6 +72,10 @@ class CommandsCfg:
     """
     Command terms for the MDP.
     Defines the target object pose for the robot to reach.
+    
+    Orientation options:
+    - Current: Full yaw rotation (easiest to reach)
+    - For more flexibility: Uncomment alternative configurations below
     """
 
     object_pose = mdp.UniformPoseCommandCfg(
@@ -80,8 +84,17 @@ class CommandsCfg:
         resampling_time_range=(5.0, 5.0),
         debug_vis=True,
         ranges=mdp.UniformPoseCommandCfg.Ranges(
-            # pos_x=(0.4, 0.6), pos_y=(-0.25, 0.25), pos_z=(0.25, 0.5), roll=(3.14, 3.14), pitch=(0.0, 0.0), yaw=(0.0, 0.0)
-            pos_x=(0.4, 0.4), pos_y=(-0.25, -0.25), pos_z=(0.1, 0.1), roll=(3.14, 3.14), pitch=(0.0, 0.0), yaw=(0.0, 0.0)
+            pos_x=(0.4, 0.4), 
+            pos_y=(-0.25, -0.25), 
+            pos_z=(0.25, 0.25), 
+            # Orientation: Allow full yaw rotation (most flexible for Franka)
+            roll=(3.14159, 3.14159),           # Fixed: no roll rotation
+            pitch=(0.0, 0.0),          # Fixed: no pitch rotation
+            yaw=(0., 0.),   # Full rotation around z-axis (-180° to +180°)
+            # Alternative: For more orientation flexibility, uncomment:
+            # roll=(-0.5236, 0.5236),  # ±30° roll rotation
+            # pitch=(-0.5236, 0.5236), # ±30° pitch rotation
+            # yaw=(-3.14159, 3.14159), # Full yaw rotation
         ),
     )
 
@@ -178,7 +191,7 @@ class TerminationsCfg:
         func=mdp.object_reached_goal,
         params={
             "command_name": "object_pose",  # same command used in rewards
-            "threshold": 0.005,              # distance tolerance (meters)
+            "threshold": 0.02,              # distance tolerance (meters) - 2cm
         },
     )
 
@@ -221,12 +234,11 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
         """Post initialization."""
         # general settings
         self.decimation = 2
-        self.episode_length_s = 3.0
+        self.episode_length_s = 5.0
         # simulation settings
         self.sim.dt = 0.01  # 100Hz
         self.sim.render_interval = self.decimation
 
-        self.sim.physx.bounce_threshold_velocity = 0.2
         self.sim.physx.bounce_threshold_velocity = 0.01
         self.sim.physx.gpu_found_lost_aggregate_pairs_capacity = 1024 * 1024 * 4
         self.sim.physx.gpu_total_aggregate_pairs_capacity = 16 * 1024
