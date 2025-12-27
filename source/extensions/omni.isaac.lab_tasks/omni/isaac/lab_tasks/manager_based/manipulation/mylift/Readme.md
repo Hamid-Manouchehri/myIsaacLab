@@ -10,3 +10,4 @@ Playing (windows):
 ```
 isaaclab.bat -p source\standalone\workflows\rl_games\play.py --task my_Isaac_Lift_Cube_Franka_v0 --num_envs 128 --use_last_checkpoint
 ```
+
