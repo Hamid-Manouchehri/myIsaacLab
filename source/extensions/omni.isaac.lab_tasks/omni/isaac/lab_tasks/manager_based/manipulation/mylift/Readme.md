@@ -1,13 +1,16 @@
 ## Tips:
-For training and playing the env with an RL workflow (e.g. rl_games) in `manager-based` paradigm for any task (e.g. my_Isaac_Lift_Cube_Franka_v0), first change the directory to the IsaacLab dir, then:
-
+* For training and playing the env with an RL workflow (e.g. rl_games) in `manager-based` paradigm for any task (e.g. my_Isaac_Lift_Cube_Franka_v0), first change the directory to the IsaacLab dir, then:
+  
 Trainig (windows):
 ```
 isaaclab.bat -p source\standalone\workflows\rl_games\train.py --task my_Isaac_Lift_Cube_Franka_v0 --headless --video
-```
-
+``` 
 Playing (windows):
 ```
 isaaclab.bat -p source\standalone\workflows\rl_games\play.py --task my_Isaac_Lift_Cube_Franka_v0 --num_envs 128 --use_last_checkpoint
 ```
 
+* For making **plots** out of the data (IsaacLab\logs\<Path-to-Data>), execute the follwoing command in CMD:
+```
+tensorboard --logdir summaries
+```
