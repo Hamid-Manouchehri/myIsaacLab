@@ -92,8 +92,8 @@ UR5E_WITH_ROBOTIQ_2F85_CFG = ArticulationCfg(
             joint_names_expr=["shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"],
             velocity_limit=100.0,
             effort_limit=60.0,
-            stiffness=800.0,
-            damping=40.0,
+            stiffness=0.0,
+            damping=20.0,
         ),
         "gripper": ImplicitActuatorCfg(
             joint_names_expr=["finger.*joint", ".*finger.*"],
